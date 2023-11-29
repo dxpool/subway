@@ -1,6 +1,6 @@
 import { formatUnits } from "@ethersproject/units";
 import { ethers } from "ethers";
-import { CONTRACTS, wssProvider, searcherWallet } from "./src/constants.js";
+import { CONTRACTS, wssProviders, searcherWallets } from "./src/constants.js";
 import {
   logDebug,
   logError,
@@ -12,7 +12,7 @@ import {
 import { calcSandwichOptimalIn, calcSandwichState } from "./src/numeric.js";
 import { parseUniv2RouterTx } from "./src/parse.js";
 import {
-  callBundleFlashbots,
+  callBundleFlashbots, getBundleStatus,
   getRawTransaction,
   sanityCheckSimulationResponse,
   sendBundleFlashbots,
@@ -23,19 +23,21 @@ import {
   getUniv2Reserve,
 } from "./src/univ2.js";
 import { calcNextBlockBaseFee, match, stringifyBN } from "./src/utils.js";
+import dotenv from "dotenv";
+dotenv.config();
 
 // Note: You'll probably want to break this function up
 //       handling everything in here so you can follow along easily
-const sandwichUniswapV2RouterTx = async (txHash) => {
+const sandwichUniswapV2RouterTx = async (txHash,num) => {
   const strLogPrefix = `txhash=${txHash}`;
 
   // Bot not broken right
-  logTrace(strLogPrefix, "received");
+  logTrace(strLogPrefix, "received ",num);
 
   // Get tx data
   const [tx, txRecp] = await Promise.all([
-    wssProvider.getTransaction(txHash),
-    wssProvider.getTransactionReceipt(txHash),
+    wssProviders[num].getTransaction(txHash),
+    wssProviders[num].getTransactionReceipt(txHash),
   ]);
 
   // Make sure transaction hasn't been mined
@@ -151,16 +153,16 @@ const sandwichUniswapV2RouterTx = async (txHash) => {
 
   // Get block data to compute bribes etc
   // as bribes calculation has correlation with gasUsed
-  const block = await wssProvider.getBlock();
+  const block = await wssProviders[num].getBlock();
   const targetBlockNumber = block.number + 1;
   const nextBaseFee = calcNextBlockBaseFee(block);
-  const nonce = await wssProvider.getTransactionCount(searcherWallet.address);
+  const nonce = await wssProviders[num].getTransactionCount(searcherWallet[num].address);
 
   // Craft our payload
   const frontslicePayload = ethers.utils.solidityPack(
     ["address", "address", "uint128", "uint128", "uint8"],
     [
-      token,
+      weth,
       pairToSandwich,
       optimalWethIn,
       sandwichStates.frontrun.amountOut,
@@ -169,23 +171,23 @@ const sandwichUniswapV2RouterTx = async (txHash) => {
   );
   const frontsliceTx = {
     to: CONTRACTS.SANDWICH,
-    from: searcherWallet.address,
+    from: searcherWallet[num].address,
     data: frontslicePayload,
-    chainId: 1,
+    chainId: 5,
     maxPriorityFeePerGas: 0,
     maxFeePerGas: nextBaseFee,
     gasLimit: 250000,
     nonce,
     type: 2,
   };
-  const frontsliceTxSigned = await searcherWallet.signTransaction(frontsliceTx);
+  const frontsliceTxSigned = await searcherWallet[num].signTransaction(frontsliceTx);
 
   const middleTx = getRawTransaction(tx);
 
   const backslicePayload = ethers.utils.solidityPack(
     ["address", "address", "uint128", "uint128", "uint8"],
     [
-      weth,
+      token,
       pairToSandwich,
       sandwichStates.frontrun.amountOut,
       sandwichStates.backrun.amountOut,
@@ -194,21 +196,21 @@ const sandwichUniswapV2RouterTx = async (txHash) => {
   );
   const backsliceTx = {
     to: CONTRACTS.SANDWICH,
-    from: searcherWallet.address,
+    from: searcherWallet[num].address,
     data: backslicePayload,
-    chainId: 1,
+    chainId: 5,
     maxPriorityFeePerGas: 0,
     maxFeePerGas: nextBaseFee,
     gasLimit: 250000,
     nonce: nonce + 1,
     type: 2,
   };
-  const backsliceTxSigned = await searcherWallet.signTransaction(backsliceTx);
+  const backsliceTxSigned = await searcherWallet[num].signTransaction(backsliceTx);
 
   // Simulate tx to get the gas used
   const signedTxs = [frontsliceTxSigned, middleTx, backsliceTxSigned];
   const simulatedResp = await callBundleFlashbots(signedTxs, targetBlockNumber);
-
+  console.log(simulatedResp);
   // Try and check all the errors
   try {
     sanityCheckSimulationResponse(simulatedResp);
@@ -262,7 +264,7 @@ const sandwichUniswapV2RouterTx = async (txHash) => {
   }
 
   // Okay, update backslice tx
-  const backsliceTxSignedWithBribe = await searcherWallet.signTransaction({
+  const backsliceTxSignedWithBribe = await searcherWallet[num].signTransaction({
     ...backsliceTx,
     maxPriorityFeePerGas,
   });
@@ -286,49 +288,29 @@ const sandwichUniswapV2RouterTx = async (txHash) => {
       bundleResp
     )
   );
+
+  const bundleStatus = await getBundleStatus(bundleResp.bundleHash, targetBlockNumber);
+
+  console.log("bundleHash: ", bundleResp.bundleHash, "targetBlock: ", targetBlockNumber.toString(), "bundleStatus: ", bundleStatus)
+
 };
 
+
 const main = async () => {
-  logInfo(
-    "============================================================================"
-  );
-  logInfo(
-    "          _                       _         _   \r\n  ____  _| |____ __ ____ _ _  _  | |__  ___| |_ \r\n (_-< || | '_ \\ V  V / _` | || | | '_ \\/ _ \\  _|\r\n /__/\\_,_|_.__/\\_/\\_/\\__,_|\\_, | |_.__/\\___/\\__|\r\n | |__ _  _  | (_) |__  ___|__/__ __            \r\n | '_ \\ || | | | | '_ \\/ -_) V / '  \\           \r\n |_.__/\\_, | |_|_|_.__/\\___|\\_/|_|_|_|          \r\n       |__/                                     \n"
-  );
-  logInfo("github: https://github.com/libevm");
-  logInfo("twitter: https://twitter.com/libevm");
-  logInfo(
-    "============================================================================\n"
-  );
-  logInfo(`Searcher Wallet: ${searcherWallet.address}`);
-  logInfo(`Node URL: ${wssProvider.connection.url}\n`);
-  logInfo(
-    "============================================================================\n"
-  );
-
-  // Add timestamp to all subsequent console.logs
-  // One little two little three little dependency injections....
-  const origLog = console.log;
-  console.log = function (obj, ...placeholders) {
-    if (typeof obj === "string")
-      placeholders.unshift("[" + new Date().toISOString() + "] " + obj);
-    else {
-      // This handles console.log( object )
-      placeholders.unshift(obj);
-      placeholders.unshift("[" + new Date().toISOString() + "] %j");
-    }
-
-    origLog.apply(this, placeholders);
-  };
-
-  logInfo("Listening to mempool...\n");
-
-  // Listen to the mempool on local node
-  wssProvider.on("pending", (txHash) =>
-    sandwichUniswapV2RouterTx(txHash).catch((e) => {
-      logFatal(`txhash=${txHash} error ${JSON.stringify(e)}`);
-    })
-  );
+  let uniqueTxHash = new Map();
+  wssProviders.forEach((wssProvider, index) => {
+    wssProvider.on("pending", (txHash) => {
+      if (!uniqueTxHash.has(txHash)) {
+        uniqueTxHash.set(txHash,"[" + new Date().toISOString() + "] "+ index);
+        sandwichUniswapV2RouterTx(txHash, index).catch((e) => {
+          logFatal(`wssProvider ${index} txhash=${txHash} error ${JSON.stringify(e)}`);
+        });
+      }
+      else{
+        console.log("Repeated txHash: "+txHash+" "+index);
+      }
+    });
+  });
 };
 
 main();
