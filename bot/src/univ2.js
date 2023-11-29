@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
-import { uniswapV2Pair } from "./constants.js";
+import { uniswapV2Pairs } from "./constants.js";
 import { match } from "./utils.js";
-
+ 
 /* 
   Sorts tokens
 */
@@ -33,7 +33,7 @@ export const getUniv2PairAddress = (tokenA, tokenB) => {
 */
 export const getUniv2Reserve = async (pair, tokenA, tokenB) => {
   const [token0] = sortTokens(tokenA, tokenB);
-  const [reserve0, reserve1] = await uniswapV2Pair.attach(pair).getReserves();
+  const [reserve0, reserve1] = await uniswapV2Pairs[0].attach(pair).getReserves();
 
   if (match(tokenA, token0)) {
     return [reserve0, reserve1];
