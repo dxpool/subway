@@ -1,0 +1,20 @@
+#define constant ERC20_TRANSFER_ID = 0xa9059cbb
+#define constant PAIR_SWAP_ID = 0x022c0d9f
+//#define constant STORAGE_SLOT0 = FREE_STORAGE_POINTER()
+//#define constant STORAGE_SLOT1 = FREE_STORAGE_POINTER()
+#define constant USER = 0x
+
+#define macro MAIN() = take (0) returns (0) {
+    caller [USER] eq
+    iszero
+    out
+    jumpi
+
+    // 划分参数
+
+
+out:
+    0x03
+    dup1
+    revert
+}

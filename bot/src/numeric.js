@@ -1,6 +1,6 @@
-import { ethers } from "ethers";
-import { parseUnits } from "@ethersproject/units";
-import { getUniv2DataGivenIn } from "./univ2.js";
+import {ethers} from "ethers";
+import {parseUnits} from "@ethersproject/units";
+import {getUniv2DataGivenIn} from "./univ2.js";
 
 const BN_18 = parseUnits("1");
 
@@ -80,13 +80,11 @@ export const calcSandwichOptimalIn = (
   // It shouldn't be hardcoded hehe....
   const lowerBound = parseUnits("0");
   // TODO：修改成sandwich合约中最多拥有的WETH
-  const upperBound = parseUnits("100");
+  const upperBound = parseUnits("30");
 
   // Optimal WETH in to push reserve to the point where the user
   // _JUST_ receives their min recv
-  const optimalWethIn = binarySearch(lowerBound, upperBound, calcF, passF);
-
-  return optimalWethIn;
+  return binarySearch(lowerBound, upperBound, calcF, passF);
 };
 
 export const calcSandwichState = (
@@ -114,6 +112,7 @@ export const calcSandwichState = (
 
   // Sanity check
   if (victimState.amountOut.lt(userMinRecv)) {
+    console.log("11111")
     return null;
   }
 

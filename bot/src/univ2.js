@@ -33,6 +33,7 @@ export const getUniv2PairAddress = (tokenA, tokenB) => {
 */
 export const getUniv2Reserve = async (pair, tokenA, tokenB) => {
   const [token0] = sortTokens(tokenA, tokenB);
+  console.log("pair---, ", pair.toString())
   const [reserve0, reserve1] = await uniswapV2Pair.attach(pair).getReserves();
 
   if (match(tokenA, token0)) {
@@ -127,13 +128,12 @@ export const getUniv2ExactWethTokenMinRecv = async (finalMinRecv, path) => {
       toToken
     );
 
-    const newReserveData = await getUniv2DataGivenOut(
-      userMinRecv,
-      reserveFrom,
-      reserveTo
+    const newReserveData = getUniv2DataGivenOut(
+        userMinRecv,
+        reserveFrom,
+        reserveTo
     );
     userMinRecv = newReserveData.amountIn;
   }
-
   return userMinRecv;
 };

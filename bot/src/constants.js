@@ -70,3 +70,5 @@ export const uniswapV2Pair = new ethers.Contract(
   IUniswapV2PairAbi,
   searcherWallet
 );
+
+export const TEST = "0xd9F375fF61a1c7114De2Bff236E0773262847144"
