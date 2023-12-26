@@ -80,11 +80,12 @@ export const calcSandwichOptimalIn = (
   // It shouldn't be hardcoded hehe....
   const lowerBound = parseUnits("0");
   // TODO：修改成sandwich合约中最多拥有的WETH
-  const upperBound = parseUnits("30");
-
+  // console.log("userAmount in--", userAmountIn.toString())
+  // const upperBound = userAmountIn;
+  // console.log("upperBound --", upperBound.toString())
   // Optimal WETH in to push reserve to the point where the user
   // _JUST_ receives their min recv
-  return binarySearch(lowerBound, upperBound, calcF, passF);
+  return binarySearch(lowerBound, userAmountIn, calcF, passF);
 };
 
 export const calcSandwichState = (
@@ -112,7 +113,6 @@ export const calcSandwichState = (
 
   // Sanity check
   if (victimState.amountOut.lt(userMinRecv)) {
-    console.log("11111")
     return null;
   }
 

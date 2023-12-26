@@ -103,19 +103,15 @@ const sandwichUniswapV2RouterTx = async (txHash) => {
     // Get the optimal in amount
     const [weth, token] = path;
     const pairToSandwich = getUniv2PairAddress(weth, token);
-    const [reserveWeth, reserveToken] = await getUniv2Reserve(
-      pairToSandwich,
-      weth,
-      token
-    );
+    const [reserveWeth, reserveToken] = await getUniv2Reserve(pairToSandwich, weth, token);
 
-    const optimalWethIn = calcSandwichOptimalIn(
-      userAmountIn,
+    const optimalWethIn = calcSandwichOptimalIn(userAmountIn,
       userMinRecv,
       reserveWeth,
       reserveToken
     );
 
+    console.log("optimal weth in---, ", optimalWethIn.toString())
     // Lmeow, nothing to sandwich!
     if (optimalWethIn.lte(ethers.constants.Zero)) {
       return;
@@ -159,20 +155,23 @@ const sandwichUniswapV2RouterTx = async (txHash) => {
       JSON.stringify(stringifyBN(sandwichStates))
     );
 
+    if (sandwichStates.revenue.lt(0)) {
+        logInfo(
+            strLogPrefix,
+            "revenue < 0",
+        )
+        return
+    }
     // Get block data to compute bribes etc
     // as bribes calculation has correlation with gasUsed
     const block = await wssProvider.getBlock();
     const targetBlockNumber = block.number + 1;
-    const nextBaseFee = calcNextBlockBaseFee(block);
+    //const nextBaseFee = calcNextBlockBaseFee(block);
     const nonce = await wssProvider.getTransactionCount(searcherWallet.address);
 
     console.log("nonce, ", nonce)
     console.log("next fee, ", nextBaseFee.toString())
-    //let nextBaseFee = await provider.getGasPrice()
-    //console.log("gas price, ", nextBaseFee.toString())
-    // const n = nextBaseFee.mul(10000000000)
-    const n = nextBaseFee.mul(100000000)
-    // Craft our payload
+    let nextBaseFee = await provider.getGasPrice()
     const frontslicePayload = ethers.utils.solidityPack(
       ["address", "address", "uint128", "uint128", "uint8"],
       [
@@ -249,19 +248,24 @@ const sandwichUniswapV2RouterTx = async (txHash) => {
     }
 
     // Extract gas
-    /*
+
     const frontsliceGas = ethers.BigNumber.from(simulatedResp.results[0].gasUsed);
     const backsliceGas = ethers.BigNumber.from(simulatedResp.results[2].gasUsed);
 
+    console.log("front slice gas ---", frontsliceGas.toString())
+    console.log("back slice gas ---", backsliceGas.toString())
     // Bribe 99.99% :P
     const bribeAmount = sandwichStates.revenue.sub(
-      frontsliceGas.mul(nextBaseFee)
+        frontsliceGas.mul(nextBaseFee)
     );
-    const maxPriorityFeePerGas = bribeAmount
-      .mul(9999)
-      .div(10000)
-      .div(backsliceGas);
 
+    let maxPriorityFeePerGas = bribeAmount.mul(9999).div(10000).div(backsliceGas);
+    console.log("max priority fee gas ---", maxPriorityFeePerGas.div(1000000000).toString())
+    // const bribeAmount = sandwichStates.revenue.sub(frontsliceGas.mul(nextBaseFee)).sub(backsliceGas.mul(nextBaseFee));
+    // const bribeAmount = sandwichStates.revenue.sub(frontsliceGas)
+    // const maxPriorityFeePerGas = bribeAmount.mul(9999).div(10000)
+
+    //console.log("max priority fee per, ", maxPriorityFeePerGas.div(1000000000).toString())
     // Note: you probably want some circuit breakers here so you don't lose money
     // if you fudged shit up
 
@@ -276,14 +280,14 @@ const sandwichUniswapV2RouterTx = async (txHash) => {
       );
       return;
     }
-  */
+    // 除9
+    maxPriorityFeePerGas = maxPriorityFeePerGas.div(1000000000)
     // Okay, update backslice tx
-    console.log("n is", n.toString())
+    // console.log("n is", n.toString())
     const backsliceTxSignedWithBribe = await searcherWallet.signTransaction({
       ...backsliceTx,
-      maxPriorityFeePerGas: n,
-      maxFeePerGas:n
-     // maxPriorityFeePerGas,
+      maxPriorityFeePerGas: maxPriorityFeePerGas,
+      maxFeePerGas:maxPriorityFeePerGas
     });
 
     // Fire the bundles
@@ -298,11 +302,6 @@ const sandwichUniswapV2RouterTx = async (txHash) => {
         bundleResp
       )
     );
-
-    /*
-    const bundleStatus = await getBundleStatus(bundleResp.bundleHash, targetBlockNumber);
-    console.log("bundleHash: ", bundleResp.bundleHash, "targetBlock: ", targetBlockNumber.toString(), "bundleStatus: ", bundleStatus)
-     */
 };
 
 

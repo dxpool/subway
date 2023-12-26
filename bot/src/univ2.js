@@ -33,9 +33,8 @@ export const getUniv2PairAddress = (tokenA, tokenB) => {
 */
 export const getUniv2Reserve = async (pair, tokenA, tokenB) => {
   const [token0] = sortTokens(tokenA, tokenB);
-  console.log("pair---, ", pair.toString())
+  // 获取两种代币总量
   const [reserve0, reserve1] = await uniswapV2Pair.attach(pair).getReserves();
-
   if (match(tokenA, token0)) {
     return [reserve0, reserve1];
   }
@@ -122,17 +121,9 @@ export const getUniv2ExactWethTokenMinRecv = async (finalMinRecv, path) => {
     const toToken = path[i];
 
     const pair = getUniv2PairAddress(fromToken, toToken);
-    const [reserveFrom, reserveTo] = await getUniv2Reserve(
-      pair,
-      fromToken,
-      toToken
-    );
+    const [reserveFrom, reserveTo] = await getUniv2Reserve(pair, fromToken, toToken);
 
-    const newReserveData = getUniv2DataGivenOut(
-        userMinRecv,
-        reserveFrom,
-        reserveTo
-    );
+    const newReserveData = getUniv2DataGivenOut(userMinRecv, reserveFrom, reserveTo);
     userMinRecv = newReserveData.amountIn;
   }
   return userMinRecv;
