@@ -56,6 +56,7 @@ export const calcSandwichOptimalIn = (
   // 1. (Ours) WETH -> TOKEN (pushes up price)
   // 2. (Victim) WETH -> TOKEN (pushes up price more)
   // 3. (Ours) TOKEN -> WETH (sells TOKEN for slight WETH profit)
+  // calcF 是一个函数
   const calcF = (amountIn) => {
     const frontrunState = getUniv2DataGivenIn(
       amountIn,
@@ -81,11 +82,12 @@ export const calcSandwichOptimalIn = (
   const lowerBound = parseUnits("0");
   // TODO：修改成sandwich合约中最多拥有的WETH
   // console.log("userAmount in--", userAmountIn.toString())
-  // const upperBound = userAmountIn;
+  // const upperBound = parseUnits("20");
   // console.log("upperBound --", upperBound.toString())
   // Optimal WETH in to push reserve to the point where the user
   // _JUST_ receives their min recv
   return binarySearch(lowerBound, userAmountIn, calcF, passF);
+  // return binarySearch(lowerBound, userAmountIn, calcF, passF);
 };
 
 export const calcSandwichState = (

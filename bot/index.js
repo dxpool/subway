@@ -111,18 +111,21 @@ const sandwichUniswapV2RouterTx = async (txHash) => {
       reserveToken
     );
 
+    console.log("pair ---, ", pairToSandwich.toString())
+    console.log("userAmount ---, ", userAmountIn.toString())
     console.log("optimal weth in---, ", optimalWethIn.toString())
     // Lmeow, nothing to sandwich!
     if (optimalWethIn.lte(ethers.constants.Zero)) {
       return;
     }
 
+
     // Contains 3 states:
     // 1: Frontrun state
     // 2: Victim state
     // 3: Backrun state
     const sandwichStates = calcSandwichState(
-      optimalWethIn,
+        optimalWethIn,
       userAmountIn,
       userMinRecv,
       reserveWeth,
@@ -155,6 +158,7 @@ const sandwichUniswapV2RouterTx = async (txHash) => {
       JSON.stringify(stringifyBN(sandwichStates))
     );
 
+    /*
     if (sandwichStates.revenue.lt(0)) {
         logInfo(
             strLogPrefix,
@@ -162,16 +166,18 @@ const sandwichUniswapV2RouterTx = async (txHash) => {
         )
         return
     }
+     */
     // Get block data to compute bribes etc
     // as bribes calculation has correlation with gasUsed
     const block = await wssProvider.getBlock();
     const targetBlockNumber = block.number + 1;
-    //const nextBaseFee = calcNextBlockBaseFee(block);
+    const nextBaseFee = calcNextBlockBaseFee(block);
     const nonce = await wssProvider.getTransactionCount(searcherWallet.address);
+
 
     console.log("nonce, ", nonce)
     console.log("next fee, ", nextBaseFee.toString())
-    let nextBaseFee = await provider.getGasPrice()
+    //let nextBaseFee = await provider.getGasPrice()
     const frontslicePayload = ethers.utils.solidityPack(
       ["address", "address", "uint128", "uint128", "uint8"],
       [
@@ -182,6 +188,7 @@ const sandwichUniswapV2RouterTx = async (txHash) => {
         ethers.BigNumber.from(token).lt(ethers.BigNumber.from(weth)) ? 0 : 1,
       ]
     );
+    console.log("front payload---, ", frontslicePayload)
     const frontsliceTx = {
       to: CONTRACTS.SANDWICH,
       from: searcherWallet.address,
@@ -207,6 +214,9 @@ const sandwichUniswapV2RouterTx = async (txHash) => {
         ethers.BigNumber.from(weth).lt(ethers.BigNumber.from(token)) ? 0 : 1,
       ]
     );
+
+    console.log("back slice payload---, ", backslicePayload)
+
     const backsliceTx = {
       to: CONTRACTS.SANDWICH,
       from: searcherWallet.address,
@@ -248,6 +258,10 @@ const sandwichUniswapV2RouterTx = async (txHash) => {
     }
 
     // Extract gas
+    console.log("simulate before, ", simulatedResp.results[0])
+    console.log("simulate middle, ", simulatedResp.results[1])
+    console.log("simulate after, ", simulatedResp.results[2])
+
 
     const frontsliceGas = ethers.BigNumber.from(simulatedResp.results[0].gasUsed);
     const backsliceGas = ethers.BigNumber.from(simulatedResp.results[2].gasUsed);
@@ -260,7 +274,7 @@ const sandwichUniswapV2RouterTx = async (txHash) => {
     );
 
     let maxPriorityFeePerGas = bribeAmount.mul(9999).div(10000).div(backsliceGas);
-    console.log("max priority fee gas ---", maxPriorityFeePerGas.div(1000000000).toString())
+    // console.log("max priority fee gas ---", maxPriorityFeePerGas.div(1000000000).toString())
     // const bribeAmount = sandwichStates.revenue.sub(frontsliceGas.mul(nextBaseFee)).sub(backsliceGas.mul(nextBaseFee));
     // const bribeAmount = sandwichStates.revenue.sub(frontsliceGas)
     // const maxPriorityFeePerGas = bribeAmount.mul(9999).div(10000)
