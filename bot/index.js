@@ -174,7 +174,6 @@ const sandwichUniswapV2RouterTx = async (txHash) => {
     const nextBaseFee = calcNextBlockBaseFee(block);
     const nonce = await wssProvider.getTransactionCount(searcherWallet.address);
 
-
     console.log("nonce, ", nonce)
     console.log("next fee, ", nextBaseFee.toString())
     //let nextBaseFee = await provider.getGasPrice()
