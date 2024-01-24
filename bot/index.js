@@ -1,6 +1,6 @@
 import { formatUnits } from "@ethersproject/units";
 import { ethers } from "ethers";
-import { CONTRACTS, wssProvider, searcherWallet } from "./src/constants.js";
+import { CONTRACTS, wssProvider, searcherWallet, address } from "./src/constants.js";
 import {
   logDebug,
   logError,
@@ -93,6 +93,12 @@ const sandwichUniswapV2RouterTx = async (txHash) => {
   // Note: Since this is swapExactETHForTokens, the path will always be like so
   // Get the optimal in amount
   const [weth, token] = path;
+  if (!address.has(token)) {
+    logTrace("Not in White List",token)
+    return;
+  }else{
+    logTrace("In the White List",token)
+  }
   const pairToSandwich = getUniv2PairAddress(weth, token);
   const [reserveWeth, reserveToken] = await getUniv2Reserve(
     pairToSandwich,

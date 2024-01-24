@@ -70,3 +70,22 @@ export const uniswapV2Pair = new ethers.Contract(
   IUniswapV2PairAbi,
   searcherWallet
 );
+
+function readAddresses() {
+  try {
+    const jsonData = fs.readFileSync('output.json', 'utf-8');
+    const data = JSON.parse(jsonData);
+    const addressSet = new Set();
+    for (const token in data) {
+      if (data.hasOwnProperty(token) && data[token].Address) {
+        addressSet.add(data[token].Address);
+      }
+    }
+    return addressSet;
+  } catch (error) {
+    console.error('Error reading or parsing the JSON file:', error);
+    return null;
+  }
+}
+
+export const address = readAddresses();
