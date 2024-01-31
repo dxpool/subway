@@ -1,181 +1,76 @@
-import { formatUnits } from "@ethersproject/units";
 import { ethers } from "ethers";
-import { wssProvider, searcherWallet } from "./src/constants.js";
 import {
+  wssProvider,
+  searcherWallet,
+  contractProvider,
+  WethUsdcPair,
+  SwapValue,
+  jsonProvider,
+  WethMainEthPair, WethUniPair, WethUniV2Pair
+} from "./src/constants.js";
+import {
+  logDebug,
   logError,
   logFatal,
   logInfo,
   logSuccess,
   logTrace,
 } from "./src/logging.js";
-import {
-  callBundleFlashbots,
-  sanityCheckSimulationResponse,
-  sendBundleFlashbots,
-} from "./src/relayer.js";
-import { calcNextBlockBaseFee, match, stringifyBN } from "./src/utils.js";
 
-// Note: You'll probably want to break this function up
-//       handling everything in here so you can follow along easily
-const sandwichUniswapV2RouterTx = async (txHash) => {
-  const strLogPrefix = `txhash=${txHash}`;
-
-  // Bot not broken right
-  logTrace(strLogPrefix, "received");
-
-  // Get tx data
-  const [tx, txRecp] = await Promise.all([
-    wssProvider.getTransaction(txHash),
-    wssProvider.getTransactionReceipt(txHash),
-  ]);
-
-  // Make sure transaction hasn't been mined
-  if (txRecp !== null) {
-    return;
+let count = 0;
+const swapExactETHForTokens = async (block_number) => {
+  const strLogPrefix = `block_number=${block_number}`
+  logTrace(strLogPrefix, "change")
+  count++
+  if (count < 4) {
+    logInfo("!!!return!!!")
+    return
   }
-
-  // Sometimes tx is null for some reason
-  if (tx === null) {
-    return;
-  }
-
-  // We're not a generalized version
-  // So we're just gonna listen to specific addresses
-  // and decode the data from there
-  if (!match(tx.to, process.env.ADDRESS)) {
-    return;
-  }
-
-  logTrace(
-    strLogPrefix,
-    "potentially send tx found",
-  );
-
-
-  // Get block data to compute bribes etc
-  // as bribes calculation has correlation with gasUsed
-  const block = await wssProvider.getBlock();
-  const targetBlockNumber = block.number + 1;
-  const nextBaseFee = calcNextBlockBaseFee(block);
-  const nonce = await wssProvider.getTransactionCount(searcherWallet.address);
-
-  // 单独构造一笔交易
-
-  const bundleTx = {
-    to: process.env.ADDRESS,
-    from: searcherWallet.address,
-    value: ethers.utils.parseEther('0.01'),
-    chainId: 5,
-    maxPriorityFeePerGas: 0,
-    maxFeePerGas: nextBaseFee,
-    gasLimit: 25000,
-    nonce,
-    type: 2,
-  };
-
- //  console.log("from --", searcherWallet.address)
- // console.log("to---", process.env.ADDRESS)
-
-  const bundleTxSign = await searcherWallet.signTransaction(bundleTx);
-
-  // Simulate tx to get the gas used
-  const signedTxs = [bundleTxSign];
-  const simulatedResp = await callBundleFlashbots(signedTxs, targetBlockNumber);
-  console.log(simulatedResp);
-  // Try and check all the errors
-  try {
-    sanityCheckSimulationResponse(simulatedResp);
-  } catch (e) {
-    logError(
-      strLogPrefix,
-      "error while simulating",
-      JSON.stringify(
-        stringifyBN({
-          error: e,
-          block,
-          targetBlockNumber,
-          nextBaseFee,
-          nonce
-        })
-      )
-    );
-    return;
-  }
-
-  // TODO gas费任意设置
-  let maxPriorityFeePerGas = ethers.BigNumber.from(200000)
-
-  // Okay, update backslice tx
-  const buildTxWithBribe = await searcherWallet.signTransaction({
-    ...bundleTx,
-    maxPriorityFeePerGas,
-  });
-
-  // Fire the bundles
-  // const bundleResp = await sendBundleFlashbots(
-  //   [buildTxWithBribe],
-  //   targetBlockNumber
-  // );
-  // TODO: 为何 targetNumber + 1 会成功
-  const bundleResp = await sendBundleFlashbots(
-      [buildTxWithBribe],
-      targetBlockNumber + 1
-  );
-  logSuccess(
-    strLogPrefix,
-    "Bundle submitted!",
-    JSON.stringify(
-      block,
-      targetBlockNumber,
-      nextBaseFee,
-      nonce,
-      bundleResp
-    )
-  );
+  let deadline = parseInt((new Date().getTime() / 1000).toString()) + 600
+  let b = await contractProvider.swapExactETHForTokens(0, WethUsdcPair, searcherWallet.address, deadline, {value: SwapValue})
+  logInfo("tx_hash is", b.hash)
+  count = 0
 };
 
 
 const main = async () => {
-  logInfo(
-    "============================================================================"
-  );
-  logInfo(
-    "          _                       _         _   \r\n  ____  _| |____ __ ____ _ _  _  | |__  ___| |_ \r\n (_-< || | '_ \\ V  V / _` | || | | '_ \\/ _ \\  _|\r\n /__/\\_,_|_.__/\\_/\\_/\\__,_|\\_, | |_.__/\\___/\\__|\r\n | |__ _  _  | (_) |__  ___|__/__ __            \r\n | '_ \\ || | | | | '_ \\/ -_) V / '  \\           \r\n |_.__/\\_, | |_|_|_.__/\\___|\\_/|_|_|_|          \r\n       |__/                                     \n"
-  );
-  logInfo("github: https://github.com/libevm");
-  logInfo("twitter: https://twitter.com/libevm");
-  logInfo(
-    "============================================================================\n"
-  );
-  logInfo(`Searcher Wallet: ${searcherWallet.address}`);
-  logInfo(`Node URL: ${wssProvider.connection.url}\n`);
-  logInfo(
-    "============================================================================\n"
-  );
+  const {chainId} = await jsonProvider.getNetwork()
+  console.log("---chainId---", chainId)
+  let DxEthContract =  "0x8fF482dFebe8678DcE04c0dA968561758a172A4f"
+  // let DxEthContract = "0x37271e354d96e7e75B5ddd48F4B3718514b24567"
+  let domain = {
+    name: "DxPool Liquid Staking",
+    version: "1",
+    chainId: chainId,
+    verifyingContract: DxEthContract
+  }
 
-  // Add timestamp to all subsequent console.logs
-  // One little two little three little dependency injections....
-  const origLog = console.log;
-  console.log = function (obj, ...placeholders) {
-    if (typeof obj === "string")
-      placeholders.unshift("[" + new Date().toISOString() + "] " + obj);
-    else {
-      // This handles console.log( object )
-      placeholders.unshift(obj);
-      placeholders.unshift("[" + new Date().toISOString() + "] %j");
-    }
+  let typeRecord = {
+    Permit: [
+      {name: 'owner', type: 'address'},
+      {name: 'spender', type: 'address'},
+      {name: 'value', type: 'uint256'},
+      {name: 'nonce', type: 'uint256'},
+      {name: 'deadline', type: 'uint256'}
+    ]
+  }
 
-    origLog.apply(this, placeholders);
-  };
+  // nonce 需要单独获取
+  let DxStakingContract = "0x03882B8340632859bee5c0A95fcBc898b020Fca7"
+  let value = {
+    owner: '0x638A2789566c2d3C7801D6ABC155345613737328',
+    spender: DxStakingContract,
+    value: 1000000,
+    nonce: 1,
+    deadline: 1706675822
+  }
+  // const web3 = new ethers.providers.Web3Provider(jsonProvider)
+  // web3.getSigner()._signTypedData()
 
-  logInfo("Listening to mempool...\n");
+  const sign = await searcherWallet._signTypedData(domain, typeRecord, value)
 
-  // Listen to the mempool on local node
-  wssProvider.on("pending", (txHash) =>
-    sandwichUniswapV2RouterTx(txHash).catch((e) => {
-      logFatal(`txhash=${txHash} error ${JSON.stringify(e)}`);
-    })
-  );
+  let part = ethers.utils.splitSignature(sign)
+  console.log("signature: ", part)
 };
 
 main();
