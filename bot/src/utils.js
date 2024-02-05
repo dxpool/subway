@@ -68,3 +68,11 @@ export const calcNextBlockBaseFee = (curBlock) => {
   const rand = Math.floor(Math.random() * 10);
   return newBaseFee.add(rand);
 };
+
+export const numberToHex = (amount) => {
+  const n = amount.toString(16)
+  if (n.length % 2 == 0) {
+    return n
+  }
+  return "0" + n
+}

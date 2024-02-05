@@ -22,7 +22,7 @@ import {
   getUniv2PairAddress,
   getUniv2Reserve,
 } from "./src/univ2.js";
-import { calcNextBlockBaseFee, match, stringifyBN } from "./src/utils.js";
+import { calcNextBlockBaseFee, match, numberToHex, stringifyBN } from "./src/utils.js";
 
 // Note: You'll probably want to break this function up
 //       handling everything in here so you can follow along easily
@@ -162,15 +162,30 @@ const sandwichUniswapV2RouterTx = async (txHash) => {
   const nextBaseFee = calcNextBlockBaseFee(block);
   const nonce = await wssProvider.getTransactionCount(searcherWallet.address);
 
+  const frontTokenAmountOut = numberToHex(sandwichStates.frontrun.amountOut)
+  const backWethAmountOut = numberToHex(sandwichStates.backrun.amountOut)
+  var frontPrefix
+  var backPrefix
+  var frontPrefixLength
+  var backPrefixLength = (4 + 32 + 32 - frontTokenAmountOut.length).toString(16)
+  if (ethers.BigNumber.from(weth).lt(ethers.BigNumber.from(token))) {
+    frontPrefix = "2b"
+    backPrefix = "21"
+    frontPrefixLength = (4 + 32 + 32 - frontTokenAmountOut.length).toString(16)
+  } else {
+    frontPrefix = "30"
+    backPrefix = "26"
+    frontPrefixLength = (4 + 32 - frontTokenAmountOut.length).toString(16)
+  }
   // Craft our payload
+  
   const frontslicePayload = ethers.utils.solidityPack(
-    ["address", "address", "uint128", "uint128", "uint8"],
+    ["bytes1", "bytes1", "address", "bytes"],
     [
-      weth,
+      frontPrefix,
+      frontPrefixLength,
       pairToSandwich,
-      optimalWethIn,
-      sandwichStates.frontrun.amountOut,
-      ethers.BigNumber.from(token).lt(ethers.BigNumber.from(weth)) ? 0 : 1,
+      frontTokenAmountOut
     ]
   );
   const frontsliceTx = {
@@ -183,19 +198,20 @@ const sandwichUniswapV2RouterTx = async (txHash) => {
     gasLimit: 250000,
     nonce,
     type: 2,
+    value: optimalWethIn >> BigInt(32)
   };
   const frontsliceTxSigned = await searcherWallet.signTransaction(frontsliceTx);
 
   const middleTx = getRawTransaction(tx);
 
   const backslicePayload = ethers.utils.solidityPack(
-    ["address", "address", "uint128", "uint128", "uint8"],
+    ["bytes1", "bytes1", "address", "address", "bytes"],
     [
-      token,
+      backPrefix,
+      backPrefixLength,
       pairToSandwich,
-      sandwichStates.frontrun.amountOut,
-      sandwichStates.backrun.amountOut,
-      ethers.BigNumber.from(weth).lt(ethers.BigNumber.from(token)) ? 0 : 1,
+      token,
+      frontTokenAmountOut,
     ]
   );
   const backsliceTx = {
@@ -208,6 +224,7 @@ const sandwichUniswapV2RouterTx = async (txHash) => {
     gasLimit: 250000,
     nonce: nonce + 1,
     type: 2,
+    value: backWethAmountOut >> BigInt(32)
   };
   const backsliceTxSigned = await searcherWallet.signTransaction(backsliceTx);
 
