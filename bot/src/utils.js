@@ -47,12 +47,32 @@ export const toRpcHexString = (bn) => {
   let val = bn.toHexString();
   val = "0x" + val.replace("0x", "").replace(/^0+/, "");
 
-  if (val == "0x") {
+  if (val === "0x") {
     val = "0x0";
   }
 
   return val;
 };
+
+
+export const calNextBlockFee = (curBlock) => {
+  // cur Block
+  const current_base_fee = curBlock.baseFeePerGas;
+  const current_gas_used = curBlock.gasUsed;
+
+  const current_gas_targent = curBlock.gasLimit.div(2);
+  if (current_gas_used === current_gas_targent) {
+    return current_base_fee
+  } else if (current_gas_used > current_gas_targent) {
+    let delta = current_gas_used - current_gas_targent;
+    let base_fee_delta = current_base_fee * delta / current_gas_targent / 8;
+    return current_base_fee + base_fee_delta
+  } else {
+    let delta = current_gas_targent - current_gas_used;
+    let base_fee_delta = current_base_fee * delta / current_gas_targent / 8;
+    return current_base_fee - base_fee_delta
+  }
+}
 
 export const calcNextBlockBaseFee = (curBlock) => {
   const baseFee = curBlock.baseFeePerGas;
@@ -69,10 +89,15 @@ export const calcNextBlockBaseFee = (curBlock) => {
   return newBaseFee.add(rand);
 };
 
-export const numberToHex = (amount) => {
-  const n = amount.toString(16)
-  if (n.length % 2 == 0) {
-    return n
+
+export const numberRemoveLastZero = (str) => {
+  let lastIndex = str.length - 1;
+  while (str[lastIndex] === '0') {
+    lastIndex--;
   }
-  return "0" + n
+  let a =  str.substring(0, lastIndex + 1);
+  if ( a.length % 2 === 0) {
+    return a
+  }
+  return a + "0"
 }

@@ -1,339 +1,321 @@
 import { formatUnits } from "@ethersproject/units";
 import { ethers } from "ethers";
-import { CONTRACTS, wssProvider, searcherWallet, address } from "./src/constants.js";
+import {CONTRACTS, wssProvider, searcherWallet} from "./src/constants.js";
 import {
   logDebug,
   logError,
   logFatal,
-  logInfo,
-  logSuccess,
+  logInfo, logSuccess,
   logTrace,
 } from "./src/logging.js";
-import { calcSandwichOptimalIn, calcSandwichState } from "./src/numeric.js";
+import {calcSandwichOptimalIn, calSandwichState} from "./src/numeric.js";
 import { parseUniv2RouterTx } from "./src/parse.js";
 import {
-  callBundleFlashbots, getBundleStatus,
+  callBundleFlashbots,
   getRawTransaction,
-  sanityCheckSimulationResponse,
-  sendBundleFlashbots,
+  sanityCheckSimulationResponse, sendBundleFlashbots,
+  // sendBundleFlashbots,
 } from "./src/relayer.js";
 import {
   getUniv2ExactWethTokenMinRecv,
   getUniv2PairAddress,
   getUniv2Reserve,
 } from "./src/univ2.js";
-import { calcNextBlockBaseFee, match, numberToHex, stringifyBN } from "./src/utils.js";
+import {
+  calcNextBlockBaseFee,
+  match, numberRemoveLastZero,
+  numberRemoveZero,
+  numberToZeroLast,
+  stringifyBN,
+  testNumberToHex
+} from "./src/utils.js";
 
 // Note: You'll probably want to break this function up
 //       handling everything in here so you can follow along easily
 const sandwichUniswapV2RouterTx = async (txHash) => {
   const strLogPrefix = `txhash=${txHash}`;
 
-  // Bot not broken right
-  logTrace(strLogPrefix, "received");
+  // logTrace(strLogPrefix, "received");
 
-  // Get tx data
   const [tx, txRecp] = await Promise.all([
     wssProvider.getTransaction(txHash),
     wssProvider.getTransactionReceipt(txHash),
   ]);
 
-  // Make sure transaction hasn't been mined
   if (txRecp !== null) {
     return;
   }
 
-  // Sometimes tx is null for some reason
   if (tx === null) {
     return;
   }
 
-  // We're not a generalized version
-  // So we're just gonna listen to specific addresses
-  // and decode the data from there
   if (!match(tx.to, CONTRACTS.UNIV2_ROUTER)) {
     return;
   }
 
-  // Decode transaction data
-  // i.e. is this swapExactETHForToken?
-  // You'll have to decode all the other possibilities :P
   const routerDataDecoded = parseUniv2RouterTx(tx.data);
 
-  // Basically means its not swapExactETHForToken and you need to add
-  // other possibilities
   if (routerDataDecoded === null) {
     return;
   }
 
-  const { path, amountOutMin, deadline } = routerDataDecoded;
+  const {path, amountOutMin, deadline} = routerDataDecoded;
 
-  // If tx deadline has passed, just ignore it
-  // As we cannot sandwich it
   if (new Date().getTime() / 1000 > deadline) {
     return;
   }
 
-  // Get the min recv for token directly after WETH
   const userMinRecv = await getUniv2ExactWethTokenMinRecv(amountOutMin, path);
-  const userAmountIn = tx.value; // User is sending exact ETH (not WETH)
+  const userAmountIn = tx.value;
 
   logTrace(
-    strLogPrefix,
-    "potentially sandwichable swapExactETHForTokens tx found",
-    JSON.stringify(
-      stringifyBN({
-        userAmountIn,
-        userMinRecv,
-        path,
-      })
-    )
+      strLogPrefix,
+      "potentially sandwichable swapExactETHForTokens tx found",
+      JSON.stringify(stringifyBN({
+            userAmountIn,
+            userMinRecv,
+            path,
+          })
+      )
   );
 
   // Note: Since this is swapExactETHForTokens, the path will always be like so
   // Get the optimal in amount
   const [weth, token] = path;
+
+  // 判断是否合理的流程
+  /*
   if (!address.has(token)) {
-    logTrace("Not in White List",token)
-    return;
-  }else{
-    logTrace("In the White List",token)
+      logTrace("Not in White List",token)
+      return;
+  } else {
+      logTrace("In the White List",token)
   }
+   */
   const pairToSandwich = getUniv2PairAddress(weth, token);
-  const [reserveWeth, reserveToken] = await getUniv2Reserve(
-    pairToSandwich,
-    weth,
-    token
-  );
+  const [reserveWeth, reserveToken] = await getUniv2Reserve(pairToSandwich, weth, token);
+
   const optimalWethIn = calcSandwichOptimalIn(
-    userAmountIn,
-    userMinRecv,
-    reserveWeth,
-    reserveToken
+      userAmountIn,
+      userMinRecv,
+      reserveWeth,
+      reserveToken
   );
 
-  // Lmeow, nothing to sandwich!
-  if (optimalWethIn.lte(ethers.constants.Zero)) {
+  // 右移位数
+  const right = BigInt(32)
+
+  // 前缀 prefix
+  const prefix = "0x"
+
+  // 0的话说明token
+  let isWethTokenOne
+  if (ethers.BigNumber.from(weth).gt(ethers.BigNumber.from(token))) {
+      isWethTokenOne = 1
+  }
+
+  // TODO: 使计算得到的front weth的十六进制数是1000000的倍数
+  let valueHex = BigInt(optimalWethIn) >> right
+  let tmp = prefix + BigInt(valueHex).toString(16) + "00000000"
+  let valueBigInt = BigInt(BigInt(tmp).toString(10))
+
+  if (valueBigInt < BigInt(ethers.constants.Zero)) {
     return;
   }
 
-  // Contains 3 states:
-  // 1: Frontrun state
-  // 2: Victim state
-  // 3: Backrun state
-  const sandwichStates = calcSandwichState(
-    optimalWethIn,
-    userAmountIn,
-    userMinRecv,
-    reserveWeth,
-    reserveToken
-  );
+  const sandwichStates = calSandwichState (
+      valueBigInt,
+      BigInt(userAmountIn),
+      BigInt(userMinRecv),
+      BigInt(reserveWeth),
+      BigInt(reserveToken),
+      isWethTokenOne
+  )
 
   // Sanity check failed
   if (sandwichStates === null) {
     logDebug(
-      strLogPrefix,
-      "sandwich sanity check failed",
-      JSON.stringify(
-        stringifyBN({
-          optimalWethIn,
-          reserveToken,
-          reserveWeth,
-          userAmountIn,
-          userMinRecv,
-        })
-      )
+        strLogPrefix,
+        "sandwich sanity check failed",
+        JSON.stringify(
+            stringifyBN({
+              optimalWethIn,
+              reserveToken,
+              reserveWeth,
+              userAmountIn,
+              userMinRecv,
+            })
+        )
     );
     return;
   }
 
-  // Cool profitable sandwich :)
-  // But will it be post gas?
-  logInfo(
-    strLogPrefix,
-    "sandwichable target found",
-    JSON.stringify(stringifyBN(sandwichStates))
-  );
+  logInfo(strLogPrefix, " sandwichable target found");
+
+  console.log("--- PairAddress --- ", pairToSandwich.toString())
+  console.log("--- Revenue --- ", (sandwichStates.revenue / BigInt(1e9)).toString())
+
+  /*
+  if (sandwichStates.revenue.lt(0)) {
+      logInfo(
+          strLogPrefix,
+          "revenue < 0",
+      )
+      return
+  }
+  */
 
   // Get block data to compute bribes etc
   // as bribes calculation has correlation with gasUsed
-  const block = await wssProvider.getBlock();
-  const targetBlockNumber = block.number + 1;
-  const nextBaseFee = calcNextBlockBaseFee(block);
-  const nonce = await wssProvider.getTransactionCount(searcherWallet.address);
+  const block = await wssProvider.getBlock()
+  const targetBlockNumber = block.number + 1
+  let nextBaseFee = calcNextBlockBaseFee(block)
+  const nonce = await wssProvider.getTransactionCount(searcherWallet.address)
+  let length = sandwichStates.frontOutHexLength
+  let frontTokenAmountOut = sandwichStates.tokenAmountOut
 
-  const frontTokenAmountOut = numberToHex(sandwichStates.frontrun.amountOut)
-  const backWethAmountOut = numberToHex(sandwichStates.backrun.amountOut)
-  var frontPrefix
-  var backPrefix
-  var frontPrefixLength
-  var backPrefixLength = (4 + 32 + 32 - frontTokenAmountOut.length).toString(16)
-  if (ethers.BigNumber.from(weth).lt(ethers.BigNumber.from(token))) {
-    frontPrefix = "2b"
-    backPrefix = "21"
-    frontPrefixLength = (4 + 32 + 32 - frontTokenAmountOut.length).toString(16)
+  let frontPrefix
+  let backPrefix
+  let frontPrefixLength
+  let blockPrefix = "0x" + block.number.toString(16).slice(-2)
+  const backPrefixLength = prefix + ((68 - (length / 2))).toString(16)
+
+  if (isWethTokenOne) {
+    frontPrefix = "0x30"
+    backPrefix = "0x26"
+    frontPrefixLength = prefix + ((36 - (length / 2))).toString(16)
   } else {
-    frontPrefix = "30"
-    backPrefix = "26"
-    frontPrefixLength = (4 + 32 - frontTokenAmountOut.length).toString(16)
+    frontPrefix = "0x2b"
+    backPrefix = "0x21"
+    frontPrefixLength = prefix + ((68 - (length / 2))).toString(16)
   }
-  // Craft our payload
-  
+
   const frontslicePayload = ethers.utils.solidityPack(
-    ["bytes1", "bytes1", "address", "bytes"],
-    [
-      frontPrefix,
-      frontPrefixLength,
-      pairToSandwich,
-      frontTokenAmountOut
-    ]
-  );
-  const frontsliceTx = {
+      ["bytes1", "bytes1", "bytes1", "address", "bytes"],
+      [
+        frontPrefix,
+        blockPrefix,
+        frontPrefixLength,
+        pairToSandwich,
+        frontTokenAmountOut
+      ]
+  )
+
+  const frontSliceTx = {
     to: CONTRACTS.SANDWICH,
     from: searcherWallet.address,
     data: frontslicePayload,
-    chainId: 5,
+    chainId: 1,
     maxPriorityFeePerGas: 0,
     maxFeePerGas: nextBaseFee,
-    gasLimit: 250000,
+    gasLimit: 300000,
     nonce,
     type: 2,
-    value: optimalWethIn >> BigInt(32)
-  };
-  const frontsliceTxSigned = await searcherWallet.signTransaction(frontsliceTx);
+    value: valueHex
+  }
 
-  const middleTx = getRawTransaction(tx);
+  const frontSliceTxSigned = await searcherWallet.signTransaction(frontSliceTx)
 
-  const backslicePayload = ethers.utils.solidityPack(
-    ["bytes1", "bytes1", "address", "address", "bytes"],
-    [
-      backPrefix,
-      backPrefixLength,
-      pairToSandwich,
-      token,
-      frontTokenAmountOut,
-    ]
-  );
-  const backsliceTx = {
+  const middleTx = getRawTransaction(tx)
+
+  const backSlicePayload = ethers.utils.solidityPack(
+      ["bytes1", "bytes1", "bytes1", "address", "address", "bytes"],
+      [
+        backPrefix,
+        blockPrefix,
+        backPrefixLength,
+        pairToSandwich,
+        token,
+        frontTokenAmountOut,
+      ]
+  )
+
+  const backSliceTx = {
     to: CONTRACTS.SANDWICH,
     from: searcherWallet.address,
-    data: backslicePayload,
-    chainId: 5,
+    data: backSlicePayload,
+    chainId: 1,
     maxPriorityFeePerGas: 0,
     maxFeePerGas: nextBaseFee,
-    gasLimit: 250000,
+    gasLimit: 300000,
     nonce: nonce + 1,
     type: 2,
-    value: backWethAmountOut >> BigInt(32)
-  };
-  const backsliceTxSigned = await searcherWallet.signTransaction(backsliceTx);
+    value: sandwichStates.backWethHex
+  }
 
-  // Simulate tx to get the gas used
-  const signedTxs = [frontsliceTxSigned, middleTx, backsliceTxSigned];
+  // 打印数据
+  console.log("front weth value, ", valueHex)
+  console.log("back weth value, ", sandwichStates.backWethHex)
+  console.log("token amount ", frontTokenAmountOut)
+
+  const backSliceTxSigned = await searcherWallet.signTransaction(backSliceTx);
+
+  const signedTxs = [frontSliceTxSigned, middleTx, backSliceTxSigned];
+
   const simulatedResp = await callBundleFlashbots(signedTxs, targetBlockNumber);
-  console.log(simulatedResp);
-  // Try and check all the errors
+
   try {
     sanityCheckSimulationResponse(simulatedResp);
   } catch (e) {
     logError(
-      strLogPrefix,
-      "error while simulating",
-      JSON.stringify(
-        stringifyBN({
-          error: e,
-          block,
-          targetBlockNumber,
-          nextBaseFee,
-          nonce,
-          sandwichStates,
-          frontsliceTx,
-          backsliceTx,
-        })
-      )
+        strLogPrefix,
+        "error while simulating",
+        JSON.stringify(
+            stringifyBN({
+              error: e,
+              targetBlockNumber,
+            })
+        )
     );
-
     return;
   }
 
   // Extract gas
-  const frontsliceGas = ethers.BigNumber.from(simulatedResp.results[0].gasUsed);
-  const backsliceGas = ethers.BigNumber.from(simulatedResp.results[2].gasUsed);
+  console.log("--- Front  Simulate --- ",  simulatedResp.results[0])
+  console.log("--- Middle Simulate --- ",  simulatedResp.results[1])
+  console.log("--- After  Simulate --- ",  simulatedResp.results[2])
 
-  // Bribe 99.99% :P
-  const bribeAmount = sandwichStates.revenue.sub(
-    frontsliceGas.mul(nextBaseFee)
-  );
-  const maxPriorityFeePerGas = bribeAmount
-    .mul(9999)
-    .div(10000)
-    .div(backsliceGas);
+  // 调整幅度 (估算的百分之110)
+  const frontSliceGas = BigInt(simulatedResp.results[0].gasUsed) * BigInt(110) / BigInt(100)
 
-  // Note: you probably want some circuit breakers here so you don't lose money
-  // if you fudged shit up
+  const backSliceGas = BigInt(simulatedResp.results[2].gasUsed) * BigInt(110) / BigInt(100)
 
-  // If 99.99% bribe isn't enough to cover base fee, its not worth it
-  if (maxPriorityFeePerGas.lt(nextBaseFee)) {
-    logTrace(
-      strLogPrefix,
-      `maxPriorityFee (${formatUnits(
-        maxPriorityFeePerGas,
-        9
-      )}) gwei < nextBaseFee (${formatUnits(nextBaseFee, 9)}) gwei`
-    );
-    return;
+  const bribeAmount = sandwichStates.revenue - (frontSliceGas + backSliceGas) * BigInt(nextBaseFee)
+
+  let maxPriorityFeePerGas = bribeAmount * BigInt(9999) / BigInt(10000)
+
+  if (maxPriorityFeePerGas < BigInt(nextBaseFee)) {
+      logTrace(
+          strLogPrefix,
+          `maxPriorityFee (${formatUnits(
+              maxPriorityFeePerGas,
+              9
+          )}) gwei < nextBaseFee (${formatUnits(nextBaseFee, 9)}) gwei`
+      );
+      return;
   }
 
-  // Okay, update backslice tx
-  const backsliceTxSignedWithBribe = await searcherWallet.signTransaction({
-    ...backsliceTx,
-    maxPriorityFeePerGas,
-  });
+  const backSliceTxSignedWithBribe = await searcherWallet.signTransaction({
+    ...backSliceTx,
+    maxPriorityFeePerGas: maxPriorityFeePerGas
+  })
 
-  // Fire the bundles
   const bundleResp = await sendBundleFlashbots(
-    [frontsliceTxSigned, middleTx, backsliceTxSignedWithBribe],
-    targetBlockNumber
-  );
-  logSuccess(
-    strLogPrefix,
-    "Bundle submitted!",
-    JSON.stringify(
-      block,
-      targetBlockNumber,
-      nextBaseFee,
-      nonce,
-      sandwichStates,
-      frontsliceTx,
-      maxPriorityFeePerGas,
-      bundleResp
-    )
-  );
+      [frontSliceTxSigned, middleTx, backSliceTxSignedWithBribe],
+      targetBlockNumber
+  )
 
-  const bundleStatus = await getBundleStatus(bundleResp.bundleHash, targetBlockNumber);
-
-  console.log("bundleHash: ", bundleResp.bundleHash, "targetBlock: ", targetBlockNumber.toString(), "bundleStatus: ", bundleStatus)
-
+  logSuccess(strLogPrefix, "Bundle submitted!", JSON.stringify(bundleResp))
 };
 
 
 const main = async () => {
-  logInfo(
-    "============================================================================"
-  );
-  logInfo(
-    "          _                       _         _   \r\n  ____  _| |____ __ ____ _ _  _  | |__  ___| |_ \r\n (_-< || | '_ \\ V  V / _` | || | | '_ \\/ _ \\  _|\r\n /__/\\_,_|_.__/\\_/\\_/\\__,_|\\_, | |_.__/\\___/\\__|\r\n | |__ _  _  | (_) |__  ___|__/__ __            \r\n | '_ \\ || | | | | '_ \\/ -_) V / '  \\           \r\n |_.__/\\_, | |_|_|_.__/\\___|\\_/|_|_|_|          \r\n       |__/                                     \n"
-  );
-  logInfo("github: https://github.com/libevm");
-  logInfo("twitter: https://twitter.com/libevm");
-  logInfo(
-    "============================================================================\n"
-  );
-  logInfo(`Searcher Wallet: ${searcherWallet.address}`);
+  logInfo("============================================================================\n");
+  logInfo(`Searcher Wallet: ${searcherWallet.address}\n`);
   logInfo(`Node URL: ${wssProvider.connection.url}\n`);
-  logInfo(
-    "============================================================================\n"
-  );
+  logInfo(`Contract Address: ${CONTRACTS.SANDWICH}\n`)
+  logInfo("============================================================================\n");
 
   // Add timestamp to all subsequent console.logs
   // One little two little three little dependency injections....
@@ -342,7 +324,6 @@ const main = async () => {
     if (typeof obj === "string")
       placeholders.unshift("[" + new Date().toISOString() + "] " + obj);
     else {
-      // This handles console.log( object )
       placeholders.unshift(obj);
       placeholders.unshift("[" + new Date().toISOString() + "] %j");
     }
@@ -352,11 +333,10 @@ const main = async () => {
 
   logInfo("Listening to mempool...\n");
 
-  // Listen to the mempool on local node
   wssProvider.on("pending", (txHash) =>
-    sandwichUniswapV2RouterTx(txHash).catch((e) => {
-      logFatal(`txhash=${txHash} error ${JSON.stringify(e)}`);
-    })
+      sandwichUniswapV2RouterTx(txHash).catch((e) => {
+        logFatal(`txhash=${txHash} error ${JSON.stringify(e)}`);
+      })
   );
 };
 
