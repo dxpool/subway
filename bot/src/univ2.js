@@ -78,7 +78,7 @@ export const getUniv2DataGivenOut = async (bOut, reserveA, reserveB) => {
   // Underflow
   let newReserveB = reserveB.sub(bOut);
   if (newReserveB.lt(0) || reserveB.gt(reserveB)) {
-    newReserveB = ethers.BigNumber.from(1);
+      newReserveB = ethers.BigNumber.from(1);
   }
 
   const numerator = reserveA.mul(bOut).mul(1000);

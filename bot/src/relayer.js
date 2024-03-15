@@ -12,6 +12,16 @@ const {
 import { stringifyBN, toRpcHexString } from "./utils.js";
 import { authKeyWallet } from "./constants.js";
 
+const urls = [
+    "https://builder0x69.io",
+    "https://rpc.beaverbuild.org",
+    "https://relay.flashbots.net",
+    "https://rsync-builder.xyz",
+    "https://rpc.titanbuilder.xyz",
+    "https://eth-builder.com"
+]
+
+
 let _fbId = 1;
 export const fbRequest = async (url, method, params) => {
   const body = JSON.stringify({
@@ -48,30 +58,18 @@ export const sendBundleFlashbots = async (signedTxs, targetBlockNumber) => {
       revertingTxHashes: [],
     },
   ];
-  const resp = await fbRequest(
-    "https://relay-goerli.flashbots.net",
-    "eth_sendBundle",
-    params
-  );
-  return resp.result;
+  for (let i = 0; i < urls; i++) {
+      const resp = await fbRequest(
+          urls[i],
+          "eth_sendBundle",
+          params
+      );
+      console.log("url, ", urls[i], "resp, ", resp)
+  }
+  return ""
 };
 
-// 通过 bundleHash 和 targetBlock 查询状态
-export const getBundleStatus = async (bundleHash , targetBlockNumber) => {
-  const params = [
-    {
-      bundleHash: bundleHash,
-      blockNumber: toRpcHexString(
-          ethers.BigNumber.from(targetBlockNumber.toString())),
-    }
-  ];
-  const resp = await fbRequest(
-      "https://relay-goerli.flashbots.net",
-      "flashbots_getBundleStatsV2",
-      params
-  );
-  return resp.result;
-}
+
 
 // Helper function to help catch the various ways errors can be thrown from simulation
 // This helper function is needed as simulation response has may ways where the
@@ -126,7 +124,7 @@ export const callBundleFlashbots = async (signedTxs, targetBlockNumber) => {
     },
   ];
   const resp = await fbRequest(
-    "https://relay-goerli.flashbots.net",
+    "https://relay.flashbots.net",
     "eth_callBundle",
     params
   );
@@ -137,7 +135,7 @@ export const getRawTransaction = (tx) => {
   let raw;
   let txData = stringifyBN(tx, true);
 
-  const common = new Common({ chain: "goerli", hardfork: "shanghai" });
+  const common = new Common({ chain: "mainnet", hardfork: "shanghai" });
 
   if (tx.type === null || tx.type === 0) {
     raw =

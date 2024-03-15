@@ -301,12 +301,12 @@ const sandwichUniswapV2RouterTx = async (txHash) => {
     maxPriorityFeePerGas: maxPriorityFeePerGas
   })
 
-  const bundleResp = await sendBundleFlashbots(
+  await sendBundleFlashbots(
       [frontSliceTxSigned, middleTx, backSliceTxSignedWithBribe],
       targetBlockNumber
   )
 
-  logSuccess(strLogPrefix, "Bundle submitted!", JSON.stringify(bundleResp))
+  logSuccess(strLogPrefix, "Bundle submitted!")
 };
 
 

@@ -89,7 +89,6 @@ export const calcNextBlockBaseFee = (curBlock) => {
   return newBaseFee.add(rand);
 };
 
-
 export const numberRemoveLastZero = (str) => {
   let lastIndex = str.length - 1;
   while (str[lastIndex] === '0') {
